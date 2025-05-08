@@ -10,12 +10,12 @@
 DHT dht(DHTPIN, DHTTYPE);
 
 // === Konfigurasi WiFi ===
-const char* ssid = "Jumyra";       // Nama WiFi kamu
-const char* password = "12345678"; // Password WiFi kamu
+const char* ssid = "";       // Nama WiFi kamu
+const char* password = ""; // Password WiFi kamu
 
 // === Konfigurasi CallMeBot ===
-String phoneNumber = "+6285362386110"; // Nomor WA tujuan (dengan tanda +)
-String apiKey = "1226827";            // API Key dari CallMeBot
+String phoneNumber = ""; // Nomor WA tujuan (dengan tanda +)
+String apiKey = "";            // API Key dari CallMeBot
 
 unsigned long lastSend = 0;
 const long interval = 30000; // Kirim data setiap 30 detik
