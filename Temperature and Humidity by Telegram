@@ -1,0 +1,126 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <DHT.h>
+#include <UrlEncode.h>
+
+// === Konfigurasi Sensor DHT ===
+#define DHTPIN D5         // Pin DHT terhubung ke D5
+#define DHTTYPE DHT11     // Ganti jadi DHT22 jika pakai sensor DHT22
+DHT dht(DHTPIN, DHTTYPE);
+
+// === Konfigurasi WiFi ===
+const char* ssid = "Warkop tgk nadi";       // Nama WiFi kamu
+const char* password = "Bacelona"; // Password WiFi kamu
+
+// === Konfigurasi Bot Telegram ===
+String BOT_TOKEN = "7657025376:AAExYmoNIIdzbBauVGA3tZ19ilNYFfN4U4M"; // Token bot dari @BotFather
+String CHAT_ID = "7007348071"; // ID Chat (bisa user atau group)
+
+unsigned long lastSend = 0;
+const long interval = 30000; // Kirim data setiap 30 detik
+
+void sendMessage(String message) {
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClientSecure *client = new WiFiClientSecure;
+    client->setInsecure(); // Abaikan verifikasi SSL (hanya untuk pengujian)
+
+    HTTPClient https;
+
+    String url = "https://api.telegram.org/bot";
+    url += BOT_TOKEN;
+    url += "/sendMessage?chat_id=";
+    url += CHAT_ID;
+    url += "&text=" + urlEncode(message);
+
+    Serial.println("📡 Mengirim ke URL: " + url); // Debugging
+
+    if (https.begin(*client, url)) { // Mulai request HTTPS
+      int httpResponseCode = https.GET();
+
+      if (httpResponseCode > 0) {
+        Serial.print("HTTP Response Code: ");
+        Serial.println(httpResponseCode);
+
+        String response = https.getString();
+        Serial.println("🌐 Server Response: " + response);
+
+        if (httpResponseCode == HTTP_CODE_OK) {
+          Serial.println("✅ Pesan berhasil dikirim ke Telegram!");
+        } else {
+          Serial.println("❌ Gagal mengirim pesan.");
+        }
+      } else {
+        Serial.println("📡 Error pada HTTP request: " + String(https.errorToString(httpResponseCode)));
+      }
+
+      https.end();
+    } else {
+      Serial.println("🔌 Gagal terhubung ke server.");
+    }
+
+    delete client;
+  } else {
+    Serial.println("🔒 WiFi tidak terhubung!");
+  }
+}
+
+void setup() {
+  Serial.begin(9600);
+  dht.begin();
+
+  // Koneksi ke WiFi
+  WiFi.begin(ssid, password);
+  Serial.println("🔄 Menghubungkan ke WiFi...");
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\n🔗 Terhubung ke WiFi!");
+  Serial.print("📍 IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  // Kirim pesan selamat datang
+  sendMessage("Sistem Monitoring Suhu & Kelembapan siap via Telegram!");
+  delay(5000); // Tunggu sebentar agar pesan pertama sampai
+}
+
+void loop() {
+  // Jika WiFi terputus, coba reconnect
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("📶 Reconnecting to WiFi...");
+    WiFi.reconnect();
+    delay(5000);
+    return;
+  }
+
+  // Kirim data setiap interval waktu
+  if (millis() - lastSend >= interval) {
+    float hum = dht.readHumidity();
+    float temp = dht.readTemperature();
+
+    // Validasi pembacaan sensor
+    if (isnan(hum) || isnan(temp)) {
+      Serial.println("🛑 Gagal membaca data dari sensor DHT!");
+      return;
+    }
+
+    // Tampilkan data di Serial Monitor
+    Serial.print("🌡 Suhu: ");
+    Serial.print(temp);
+    Serial.print(" *C | 💧 Kelembapan: ");
+    Serial.print(hum);
+    Serial.println(" %");
+
+    // Buat pesan
+    String pesan = "🌤 Monitoring IoT\n";
+    pesan += "Suhu: " + String(temp, 2) + " *C\n";
+    pesan += "Kelembapan: " + String(hum, 2) + " %";
+
+    sendMessage(pesan);
+
+    lastSend = millis(); // Reset timer
+  }
+}
