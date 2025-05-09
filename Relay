@@ -1,0 +1,150 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <DHT.h>
+#include <UrlEncode.h>
+
+// === Konfigurasi Sensor DHT ===
+#define DHTPIN D5         // Pin DHT terhubung ke D5
+#define DHTTYPE DHT11     // Ganti jadi DHT22 jika pakai sensor DHT22
+DHT dht(DHTPIN, DHTTYPE);
+
+// === Konfigurasi Relay ===
+#define RELAY_PIN D1      // Relay terhubung ke D1
+pinMode(RELAY_PIN, OUTPUT);
+digitalWrite(RELAY_PIN, LOW); // Pastikan relay OFF saat awal
+
+// === Konfigurasi WiFi ===
+const char* ssid = "";       // Nama WiFi kamu
+const char* password = ""; // Password WiFi kamu
+
+// === Konfigurasi CallMeBot ===
+String phoneNumber = ""; // Nomor WA tujuan (dengan tanda +)
+String apiKey = "";            // API Key dari CallMeBot
+
+unsigned long lastSend = 0;
+const long interval = 30000; // Kirim data setiap 30 detik
+
+void sendMessage(String message) {
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClientSecure *client = new WiFiClientSecure;
+    client->setInsecure(); // Abaikan verifikasi SSL (hanya untuk pengujian)
+
+    HTTPClient https;
+
+    String encodedMessage = urlEncode(message);
+
+    // Membangun URL untuk kirim pesan WhatsApp via CallMeBot
+    String url = "https://api.callmebot.com/whatsapp.php?phone=";
+    url += phoneNumber.substring(1); // Hilangkan '+' untuk nomor telepon
+    url += "&text=" + encodedMessage;
+    url += "&apikey=" + apiKey;
+
+    Serial.println("📡 Mengirim ke URL: " + url); // Debugging
+
+    if (https.begin(*client, url)) { // Mulai request HTTPS
+      int httpResponseCode = https.GET();
+
+      if (httpResponseCode > 0) {
+        Serial.print("HTTP Response Code: ");
+        Serial.println(httpResponseCode);
+
+        String response = https.getString();
+        Serial.println("🌐 Server Response: " + response);
+
+        if (httpResponseCode == HTTP_CODE_OK) {
+          Serial.println("✅ Pesan berhasil dikirim ke WhatsApp!");
+        } else {
+          Serial.println("❌ Gagal mengirim pesan.");
+        }
+      } else {
+        Serial.println("📡 Error pada HTTP request: " + String(https.errorToString(httpResponseCode)));
+      }
+
+      https.end();
+    } else {
+      Serial.println("🔌 Gagal terhubung ke server.");
+    }
+
+    delete client;
+  } else {
+    Serial.println("🔒 WiFi tidak terhubung!");
+  }
+}
+
+void setup() {
+  Serial.begin(9600);
+  dht.begin();
+
+  //relay---
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW); // Pastikan relay OFF saat awal
+
+  // Koneksi ke WiFi
+  WiFi.begin(ssid, password);
+  Serial.println("🔄 Menghubungkan ke WiFi...");
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\n🔗 Terhubung ke WiFi!");
+  Serial.print("📍 IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  // Kirim pesan selamat datang
+  sendMessage("Sistem Monitoring Suhu & Kelembapan siap!");
+  delay(5000); // Tunggu sebentar agar pesan pertama sampai
+}
+
+void loop() {
+      // Ambang batas suhu
+    float batasSuhu = 30.0;
+
+    // Kontrol relay berdasarkan suhu
+    if (temp >= batasSuhu) {
+      digitalWrite(RELAY_PIN, HIGH); // Aktifkan relay (misalnya, nyalakan kipas)
+      Serial.println("⚠️ Suhu tinggi! Relay AKTIF.");
+    } else {
+      digitalWrite(RELAY_PIN, LOW); // Matikan relay
+      Serial.println("✅ Suhu normal. Relay NONAKTIF.");
+    }
+
+
+
+
+  // Jika WiFi terputus, coba reconnect
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("📶 Reconnecting to WiFi...");
+    WiFi.reconnect();
+    delay(5000);
+    return;
+  }
+
+
+  // Kirim data setiap interval waktu
+  if (millis() - lastSend >= interval) {
+    float hum = dht.readHumidity();
+    float temp = dht.readTemperature();
+
+    // Validasi pembacaan sensor
+    if (isnan(hum) || isnan(temp)) {
+      Serial.println("🛑 Gagal membaca data dari sensor DHT!");
+      return;
+    }
+
+    // Tampilkan data di Serial Monitor
+    Serial.print("🌡 Suhu: ");
+    Serial.print(temp);
+    Serial.print(" *C | 💧 Kelembapan: ");
+    Serial.print(hum);
+    Serial.println(" %");
+
+    // Buat pesan
+    String pesan = "Suhu: " + String(temp) + " *C\nKelembapan: " + String(hum) + " %";
+    sendMessage(pesan);
+
+    lastSend = millis(); // Reset timer
+  }
+}
