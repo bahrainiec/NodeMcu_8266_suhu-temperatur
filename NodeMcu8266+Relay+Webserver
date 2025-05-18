@@ -1,0 +1,112 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <DHT.h>
+
+const char* ssid = "Warkop tgk nadi";
+const char* password = "Robusta76";
+
+#define DHTTYPE DHT11
+#define DHTPIN D2          // GPIO4
+#define RELAYPIN D1        // GPIO5
+
+DHT dht(DHTPIN, DHTTYPE);
+ESP8266WebServer server(80);
+
+float currentTemp = 0.0;
+float currentHumi = 0.0;
+bool relayState = false;
+
+bool manualControl = false;
+unsigned long manualControlTime = 0;
+const unsigned long manualControlTimeout = 10000;
+
+void handleRoot() {
+  String html = "<!DOCTYPE html><html><head><meta charset='utf-8'>";
+  html += "<title>ESP8266 Control</title>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+  html += "<style>body { font-family: Arial, sans-serif; background-color: #f0f0f0; color: #333; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }";
+  html += ".container { background-color: #fff; box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1); padding: 20px; border-radius: 10px; width: 300px; text-align: center; }";
+  html += ".status { font-size: 1.2rem; margin: 10px 0; }";
+  html += ".btn { background-color: #007bff; color: #fff; border: none; padding: 10px 20px; margin: 5px; cursor: pointer; border-radius: 5px; transition: background-color 0.3s; }";
+  html += ".btn:hover { background-color: #0056b3; }";
+  html += ".relay-on { color: #28a745; }";
+  html += ".relay-off { color: #dc3545; }";
+  html += "</style></head><body>";
+  html += "<div class='container'>";
+  html += "<h2>ESP8266 Control</h2>";
+  html += "<div class='status'>Suhu: " + String(currentTemp, 1) + " °C</div>";
+  html += "<div class='status'>Kelembapan: " + String(currentHumi, 1) + " %</div>";
+  html += "<div class='status'>Relay: <span class='" + String(relayState ? "relay-on" : "relay-off") + "'>" + (relayState ? "ON" : "OFF") + "</span></div>";
+  html += "<div><a href='/relay/on'><button class='btn'>ON</button></a>";
+  html += "<a href='/relay/off'><button class='btn'>OFF</button></a></div>";
+  html += "</div></body></html>";
+
+  server.send(200, "text/html", html);
+}
+
+void handleRelayOn() {
+  digitalWrite(RELAYPIN, LOW);
+  relayState = true;
+  manualControl = true;
+  manualControlTime = millis();
+  server.sendHeader("Location", "/");
+  server.send(302, "text/plain", "");
+}
+
+void handleRelayOff() {
+  digitalWrite(RELAYPIN, HIGH);
+  relayState = false;
+  manualControl = true;
+  manualControlTime = millis();
+  server.sendHeader("Location", "/");
+  server.send(302, "text/plain", "");
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(RELAYPIN, OUTPUT);
+  digitalWrite(RELAYPIN, HIGH);
+  dht.begin();
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nConnected. IP: " + WiFi.localIP().toString());
+
+  server.on("/", handleRoot);
+  server.on("/relay/on", handleRelayOn);
+  server.on("/relay/off", handleRelayOff);
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
+
+  static unsigned long lastRead = 0;
+  if (millis() - lastRead > 2000) {
+    lastRead = millis();
+    float temp = dht.readTemperature();
+    float humi = dht.readHumidity();
+
+    if (!isnan(temp) && !isnan(humi)) {
+      currentTemp = temp;
+      currentHumi = humi;
+
+      if (manualControl && (millis() - manualControlTime > manualControlTimeout)) {
+        manualControl = false;
+      }
+
+      if (!manualControl) {
+        if (currentTemp >= 30) {
+          digitalWrite(RELAYPIN, LOW);
+          relayState = true;
+        } else {
+          digitalWrite(RELAYPIN, HIGH);
+          relayState = false;
+        }
+      }
+    }
+  }
+}
